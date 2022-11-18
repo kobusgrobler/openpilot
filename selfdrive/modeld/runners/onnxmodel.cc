@@ -10,6 +10,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <filesystem>
 
 #include "common/swaglog.h"
 #include "common/util.h"
@@ -26,9 +27,12 @@ ONNXModel::ONNXModel(const char *path, float *_output, size_t _output_size, int 
   assert(err == 0);
   err = pipe(pipeout);
   assert(err == 0);
-
+#ifdef MODEL_TEST
+  std::string onnx_runner = std::filesystem::current_path().string() + "/runners/onnx_runner.py";
+#else
   std::string exe_dir = util::dir_name(util::readlink("/proc/self/exe"));
   std::string onnx_runner = exe_dir + "/runners/onnx_runner.py";
+#endif
   std::string tf8_arg = use_tf8 ? "--use_tf8" : "";
 
   proc_pid = fork();
