@@ -18,8 +18,10 @@
 #include "system/hardware/hw.h"
 #include "msm_media_info.h"
 
+#ifdef WEBCAM
+#include "system/camerad/cameras/camera_webcam.h"
+#else
 #include "system/camerad/cameras/camera_qcom2.h"
-#ifdef QCOM2
 #include "CL/cl_ext_qcom.h"
 #endif
 
@@ -93,7 +95,9 @@ void CameraBuf::init(cl_device_id device_id, cl_context context, CameraState *s,
   vipc_server->create_buffers_with_sizes(yuv_type, YUV_BUFFER_COUNT, false, rgb_width, rgb_height, nv12_size, nv12_width, nv12_uv_offset);
   LOGD("created %d YUV vipc buffers with size %dx%d", YUV_BUFFER_COUNT, nv12_width, nv12_height);
 
+#ifndef WEBCAM
   debayer = new Debayer(device_id, context, this, s, nv12_width, nv12_uv_offset);
+#endif
 
 #ifdef __APPLE__
   q = CL_CHECK_ERR(clCreateCommandQueue(context, device_id, 0, &err));
@@ -124,10 +128,12 @@ bool CameraBuf::acquire() {
   cur_camera_buf = &camera_bufs[cur_buf_idx];
 
   double start_time = millis_since_boot();
+#ifndef WEBCAM
   cl_event event;
   debayer->queue(q, camera_bufs[cur_buf_idx].buf_cl, cur_yuv_buf->buf_cl, rgb_width, rgb_height, &event);
   clWaitForEvents(1, &event);
   CL_CHECK(clReleaseEvent(event));
+#endif
   cur_frame_data.processing_time = (millis_since_boot() - start_time) / 1000.0;
 
   VisionIpcBufExtra extra = {
@@ -161,10 +167,13 @@ void fill_frame_data(cereal::FrameData::Builder &framed, const FrameMetadata &fr
   framed.setLensErr(frame_data.lens_err);
   framed.setLensTruePos(frame_data.lens_true_pos);
   framed.setProcessingTime(frame_data.processing_time);
-
+#ifdef QCOM2
   const float ev = c->cur_ev[frame_data.frame_id % 3];
   const float perc = util::map_val(ev, c->min_ev, c->max_ev, 0.0f, 100.0f);
   framed.setExposureValPercent(perc);
+#else
+    framed.setExposureValPercent(50);
+#endif
 
   if (c->camera_id == CAMERA_ID_AR0231) {
     framed.setSensor(cereal::FrameData::ImageSensor::AR0321);
@@ -183,7 +192,7 @@ kj::Array<uint8_t> get_raw_frame_image(const CameraBuf *b) {
 
   return kj::mv(frame_image);
 }
-
+#ifndef WEBCAM
 static kj::Array<capnp::byte> yuv420_to_jpeg(const CameraBuf *b, int thumbnail_width, int thumbnail_height) {
   int downscale = b->cur_yuv_buf->width / thumbnail_width;
   assert(downscale * thumbnail_height == b->cur_yuv_buf->height);
@@ -272,6 +281,7 @@ static void publish_thumbnail(PubMaster *pm, const CameraBuf *b) {
 
   pm->send("thumbnail", msg);
 }
+#endif
 
 float set_exposure_target(const CameraBuf *b, int x_start, int x_end, int x_skip, int y_start, int y_end, int y_skip) {
   int lum_med;
@@ -320,7 +330,9 @@ void *processing_thread(MultiCameraState *cameras, CameraState *cs, process_thre
 
     if (cs == &(cameras->road_cam) && cameras->pm && cnt % 100 == 3) {
       // this takes 10ms???
+#ifndef WEBCAM
       publish_thumbnail(cameras->pm, &(cs->buf));
+#endif
     }
     ++cnt;
   }

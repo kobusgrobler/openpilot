@@ -9,6 +9,7 @@
 int main(int argc, char *argv[]) {
   if (Hardware::PC()) {
     printf("camerad is not meant to run on PC\n");
+    camerad_thread();
     return 0;
   }
 
